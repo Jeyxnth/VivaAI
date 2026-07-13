@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VivaAI — LLM Module</title>
+<style>
+  /* ── Tokens ── */
+  :root {
+    --bg:       #0C0E14;
+    --surface:  #13161F;
+    --surface2: #1A1E2A;
+    --border:   #252836;
+    --border2:  #303446;
+    --txt:      #E2E6F0;
+    --txt2:     #7B82A0;
+    --txt3:     #454B64;
+    --teal:     #00C9A7;
+    --teal-dim: #00C9A720;
+    --amber:    #F59E0B;
+    --amber-dim:#F59E0B20;
+    --red:      #EF4444;
+    --red-dim:  #EF444420;
+    --blue:     #60A5FA;
+    --green:    #34D399;
+    --mono:     'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    --sans:     'Inter', system-ui, sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--txt);
+    font-family: var(--sans);
+    font-size: 14px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Header ── */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .logo {
+    font-family: var(--mono);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--teal);
+    letter-spacing: -0.5px;
+  }
+  .logo span { color: var(--txt2); }
+  .header-pills { display: flex; gap: 8px; margin-left: auto; align-items: center; }
+  .pill {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 99px;
+    border: 1px solid var(--border2);
+    color: var(--txt2);
+  }
+  .pill.ok  { border-color: var(--teal); color: var(--teal); background: var(--teal-dim); }
+  .pill.err { border-color: var(--red);  color: var(--red);  background: var(--red-dim); }
+  .pill.warn{ border-color: var(--amber);color: var(--amber);background: var(--amber-dim);}
+
+  /* ── Layout ── */
+  .layout {
+    display: grid;
+    grid-template-columns: 320px 1fr 300px;
+    grid-template-rows: 1fr;
+    height: calc(100vh - 53px);
+    overflow: hidden;
+  }
+
+  /* ── Panel base ── */
+  .panel {
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .panel:last-child { border-right: none; }
+  .panel-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--txt2);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .panel-header .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--txt3);
+  }
+  .panel-header .dot.live { background: var(--teal); box-shadow: 0 0 6px var(--teal); }
+  .panel-body { flex: 1; overflow-y: auto; padding: 16px; }
+  .panel-body::-webkit-scrollbar { width: 4px; }
+  .panel-body::-webkit-scrollbar-track { background: transparent; }
+  .panel-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  /* ── Left panel: module config ── */
+  .field-group { margin-bottom: 18px; }
+  .field-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--txt2);
+    margin-bottom: 6px;
+    display: block;
+  }
+  .field-label em { color: var(--teal); font-style: normal; }
+  select, input[type=number], textarea {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    color: var(--txt);
+    font-family: var(--sans);
+    font-size: 13px;
+    padding: 8px 10px;
+    outline: none;
+    transition: border-color .15s;
+  }
+  select:focus, input:focus, textarea:focus { border-color: var(--teal); }
+  textarea { resize: vertical; min-height: 140px; font-family: var(--mono); font-size: 12px; line-height: 1.6; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 9px 16px; border-radius: 7px;
+    font-size: 13px; font-weight: 500;
+    cursor: pointer; border: none; transition: all .15s;
+  }
+  .btn-primary {
+    background: var(--teal); color: #000;
+    width: 100%; justify-content: center;
+  }
+  .btn-primary:hover { opacity: .88; }
+  .btn-primary:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-ghost {
+    background: transparent; color: var(--txt2);
+    border: 1px solid var(--border2);
+  }
+  .btn-ghost:hover { border-color: var(--teal); color: var(--teal); }
+
+  /* ── Center panel: viva session ── */
+  .center-panel { border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+
+  /* Progress bar */
+  .progress-track {
+    height: 3px; background: var(--border);
+    flex-shrink: 0;
+  }
+  .progress-fill {
+    height: 100%; background: var(--teal);
+    transition: width .4s ease;
+    width: 0%;
+  }
+
+  /* Session meta */
+  .session-meta {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+    flex-shrink: 0;
+  }
+  .q-counter {
+    font-family: var(--mono);
+    font-size: 12px; color: var(--txt2);
+  }
+  .q-counter strong { color: var(--teal); }
+  .timer-box {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 22px; font-weight: 700;
+    color: var(--txt);
+    min-width: 60px; text-align: right;
+  }
+  .timer-box.warn  { color: var(--amber); }
+  .timer-box.danger{ color: var(--red); }
+
+  /* Question display */
+  .question-area {
+    flex: 1; overflow-y: auto;
+    padding: 24px 24px 0;
+  }
+  .question-area::-webkit-scrollbar { width: 4px; }
+  .question-area::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  .q-label {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--teal); letter-spacing: .06em;
+    margin-bottom: 10px;
+  }
+  .question-bubble {
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 10px;
+    padding: 16px 18px;
+    font-size: 15px; line-height: 1.7;
+    color: var(--txt);
+    min-height: 64px;
+    margin-bottom: 20px;
+    position: relative;
+  }
+  /* Streaming cursor */
+  .cursor {
+    display: inline-block;
+    width: 2px; height: 1.1em;
+    background: var(--teal);
+    vertical-align: middle;
+    margin-left: 2px;
+    animation: blink .7s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* Answer area */
+  .answer-section { padding: 0 24px 20px; flex-shrink: 0; }
+  .answer-label {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--txt2); margin-bottom: 8px;
+  }
+  textarea.answer-input {
+    min-height: 90px; font-family: var(--sans);
+    font-size: 14px; border-radius: 8px;
+  }
+  .answer-actions {
+    display: flex; gap: 10px; margin-top: 10px;
+  }
+  .answer-actions .btn-primary { flex: 1; }
+
+  /* Empty / idle states */
+  .idle-state {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 12px; color: var(--txt3);
+    font-family: var(--mono); font-size: 13px;
+    text-align: center; padding: 40px;
+  }
+  .idle-state .big { font-size: 40px; }
+
+  /* Evaluation result card */
+  .eval-card {
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 16px;
+  }
+  .score-row {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 12px;
+  }
+  .score-big {
+    font-family: var(--mono); font-size: 36px; font-weight: 700;
+    line-height: 1;
+  }
+  .score-big.high  { color: var(--green); }
+  .score-big.mid   { color: var(--amber); }
+  .score-big.low   { color: var(--red); }
+  .score-label { font-size: 12px; color: var(--txt2); }
+  .eval-field { margin-bottom: 10px; }
+  .eval-field-label {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--txt3); text-transform: uppercase;
+    letter-spacing: .06em; margin-bottom: 4px;
+  }
+  .eval-field p { font-size: 13px; line-height: 1.6; color: var(--txt2); }
+
+  /* ── Right panel: history ── */
+  .history-item {
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    margin-bottom: 10px;
+    background: var(--surface);
+    cursor: pointer;
+    transition: border-color .15s;
+  }
+  .history-item:hover { border-color: var(--border2); }
+  .history-item.active { border-color: var(--teal); }
+  .hi-header {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 6px;
+  }
+  .hi-num {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--txt3); min-width: 18px;
+  }
+  .hi-q {
+    font-size: 12px; color: var(--txt2);
+    line-height: 1.4;
+    flex: 1;
+    /* Clamp to 2 lines */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .hi-score {
+    font-family: var(--mono); font-size: 12px;
+    font-weight: 700; min-width: 28px; text-align: right;
+  }
+  .hi-score.high  { color: var(--green); }
+  .hi-score.mid   { color: var(--amber); }
+  .hi-score.low   { color: var(--red); }
+  .hi-score.pending { color: var(--txt3); }
+
+  /* Session complete */
+  .complete-banner {
+    background: var(--teal-dim);
+    border: 1px solid var(--teal);
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+    margin-bottom: 16px;
+  }
+  .complete-banner h3 { color: var(--teal); margin-bottom: 6px; font-size: 16px; }
+  .complete-banner p  { color: var(--txt2); font-size: 13px; }
+  .final-score {
+    font-family: var(--mono); font-size: 48px;
+    font-weight: 700; color: var(--teal);
+    display: block; margin: 10px 0 4px;
+  }
+
+  /* Loading spinner */
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid var(--border2);
+    border-top-color: var(--teal);
+    border-radius: 50%;
+    animation: spin .6s linear infinite;
+    display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Thinking indicator */
+  .thinking {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 12px;
+    color: var(--txt3); padding: 8px 0;
+  }
+
+  /* Token stream debug panel */
+  .token-stream {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--txt3); line-height: 1.7;
+    word-break: break-word;
+  }
+  .token-stream .t { color: var(--teal); animation: fadeIn .1s ease; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .divider {
+    height: 1px; background: var(--border);
+    margin: 16px 0;
+  }
+
+  .tag {
+    display: inline-block;
+    font-family: var(--mono); font-size: 10px;
+    padding: 2px 8px; border-radius: 4px;
+    border: 1px solid var(--border2);
+    color: var(--txt3);
+  }
+
+  /* Module preset buttons */
+  .preset-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+  .preset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 6px; padding: 8px 12px;
+    color: var(--txt2); font-size: 12px;
+    cursor: pointer; text-align: left;
+    transition: all .15s;
+  }
+  .preset-btn:hover { border-color: var(--teal); color: var(--teal); }
+</style>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────────────────────── -->
+<header>
+  <div class="logo">VivaAI <span>/</span> llm-module</div>
+  <div class="header-pills">
+    <span class="pill" id="modelPill">model: —</span>
+    <span class="pill" id="ollamaPill">ollama: checking…</span>
+  </div>
+</header>
+
+<!-- ── Layout ─────────────────────────────────────────────────────────── -->
+<div class="layout">
+
+  <!-- LEFT: Module config ─────────────────────────────────────────────── -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="dot"></div>
+      module config
+    </div>
+    <div class="panel-body">
+
+      <div class="field-group">
+        <span class="field-label">Quick presets</span>
+        <div class="preset-row" id="presetRow">
+          <!-- filled by JS -->
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="field-group">
+        <label class="field-label" for="modTitle">Module title</label>
+        <input type="text" id="modTitle" value="OS — Process Scheduling">
+      </div>
+
+      <div class="field-group">
+        <label class="field-label" for="sysPrompt">
+          <em>system_prompt</em> — drives question generation &amp; evaluation
+        </label>
+        <textarea id="sysPrompt">You are conducting an oral viva examination on Operating Systems, specifically CPU process scheduling. Ask ONE question at a time. Start with foundational concepts and progressively increase difficulty. Do NOT repeat questions. Do NOT evaluate in this turn — just ask the question. Output ONLY the question text with no preamble, no numbering, no 'Question:' prefix.</textarea>
+      </div>
+
+      <div class="row2 field-group">
+        <div>
+          <label class="field-label" for="qCount">Questions</label>
+          <input type="number" id="qCount" value="5" min="1" max="20">
+        </div>
+        <div>
+          <label class="field-label" for="timePerQ">Seconds / Q</label>
+          <input type="number" id="timePerQ" value="120" min="30" max="600">
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="startBtn" onclick="startSession()">
+        ▶ Start session
+      </button>
+
+      <div class="divider"></div>
+
+      <!-- Token stream debug -->
+      <div class="panel-header" style="margin: 0 -16px; padding: 10px 16px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);">
+        <div class="dot live" id="streamDot" style="background:var(--txt3);box-shadow:none"></div>
+        token stream
+      </div>
+      <div style="padding: 12px 0;">
+        <div class="token-stream" id="tokenStream">
+          Waiting for LLM output…
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- CENTER: Viva session ─────────────────────────────────────────────── -->
+  <div class="center-panel">
+    <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+
+    <div class="session-meta">
+      <div class="q-counter" id="qCounter">
+        No active session
+      </div>
+      <div class="timer-box" id="timerBox">—</div>
+    </div>
+
+    <!-- Idle state -->
+    <div class="idle-state" id="idleState">
+      <div class="big">⬡</div>
+      <div>Configure a module and press<br><strong style="color:var(--teal)">Start session</strong> to begin</div>
+    </div>
+
+    <!-- Active session -->
+    <div id="activeSession" style="display:none;flex:1;display:none;flex-direction:column;overflow:hidden;">
+      <div class="question-area" id="questionArea">
+        <div class="q-label" id="qLabel">QUESTION 1</div>
+        <div class="question-bubble" id="questionBubble">
+          <span class="cursor"></span>
+        </div>
+
+        <!-- Eval result shown after submission -->
+        <div id="evalResult" style="display:none"></div>
+      </div>
+
+      <div class="answer-section" id="answerSection">
+        <div class="answer-label">Your answer</div>
+        <textarea class="answer-input" id="answerInput"
+          placeholder="Type your answer here… (in the full system, this will be replaced by audio recording)"></textarea>
+        <div class="answer-actions">
+          <button class="btn btn-ghost" onclick="skipQuestion()">Skip</button>
+          <button class="btn btn-primary" id="submitBtn" onclick="submitAnswer()">
+            Submit answer →
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Session complete -->
+    <div id="completeState" style="display:none;flex:1;overflow-y:auto;padding:24px;">
+    </div>
+  </div>
+
+  <!-- RIGHT: History ───────────────────────────────────────────────────── -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="dot live" id="histDot" style="background:var(--txt3);box-shadow:none"></div>
+      session history
+    </div>
+    <div class="panel-body" id="historyPanel">
+      <div style="color:var(--txt3);font-family:var(--mono);font-size:12px;text-align:center;padding:40px 0;">
+        No session yet
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────
+const API = 'http://localhost:8000';
+
+let state = {
+  active: false,
+  module: null,
+  history: [],          // {question, answer, score, justification, strengths, gaps}
+  currentQ: null,       // question text being answered
+  qIndex: 0,
+  timer: null,
+  timeLeft: 0,
+  streaming: false,
+};
+
+// ── Boot ───────────────────────────────────────────────────────────────
+async function boot() {
+  await checkHealth();
+  await loadPresets();
+}
+
+async function checkHealth() {
+  try {
+    const r = await fetch(`${API}/health`);
+    const d = await r.json();
+    const op = document.getElementById('ollamaPill');
+    const mp = document.getElementById('modelPill');
+    if (d.ollama === 'connected') {
+      op.className = 'pill ok';
+      op.textContent = 'ollama: connected';
+      if (d.model_ready) {
+        mp.className = 'pill ok';
+        mp.textContent = `model: llama3 ✓`;
+      } else {
+        mp.className = 'pill err';
+        mp.textContent = `llama3: not pulled`;
+        showToast('Run: ollama pull llama3', 'warn');
+      }
+    } else {
+      op.className = 'pill err';
+      op.textContent = 'ollama: unreachable';
+      mp.className = 'pill err';
+      showToast('Ollama not running. Start it with: ollama serve', 'err');
+    }
+  } catch {
+    document.getElementById('ollamaPill').className = 'pill err';
+    document.getElementById('ollamaPill').textContent = 'ollama: unreachable';
+    showToast('Cannot reach backend. Start server.py first.', 'err');
+  }
+}
+
+async function loadPresets() {
+  try {
+    const r = await fetch(`${API}/default-modules`);
+    const presets = await r.json();
+    const row = document.getElementById('presetRow');
+    row.innerHTML = presets.map((p, i) => `
+      <button class="preset-btn" onclick="applyPreset(${i})">${p.title}</button>
+    `).join('');
+    window._presets = presets;
+  } catch {}
+}
+
+function applyPreset(i) {
+  const p = window._presets[i];
+  document.getElementById('modTitle').value    = p.title;
+  document.getElementById('sysPrompt').value   = p.system_prompt;
+  document.getElementById('qCount').value      = p.question_count;
+  document.getElementById('timePerQ').value    = p.time_per_question;
+}
+
+// ── Session control ────────────────────────────────────────────────────
+function startSession() {
+  if (state.active) resetSession();
+
+  state.module = {
+    title:             document.getElementById('modTitle').value,
+    system_prompt:     document.getElementById('sysPrompt').value,
+    question_count:    parseInt(document.getElementById('qCount').value),
+    time_per_question: parseInt(document.getElementById('timePerQ').value),
+  };
+  state.history  = [];
+  state.qIndex   = 0;
+  state.active   = true;
+
+  document.getElementById('idleState').style.display  = 'none';
+  document.getElementById('completeState').style.display = 'none';
+  const as = document.getElementById('activeSession');
+  as.style.display = 'flex';
+
+  document.getElementById('histDot').className = 'dot live';
+  renderHistory();
+  nextQuestion();
+}
+
+function resetSession() {
+  clearInterval(state.timer);
+  state.active   = false;
+  state.history  = [];
+  state.qIndex   = 0;
+  state.currentQ = null;
+}
+
+// ── Question flow ──────────────────────────────────────────────────────
+async function nextQuestion() {
+  state.qIndex++;
+  const total = state.module.question_count;
+
+  // Update UI meta
+  document.getElementById('qLabel').textContent   = `QUESTION ${state.qIndex}`;
+  document.getElementById('qCounter').innerHTML   =
+    `<strong>${state.qIndex}</strong> / ${total} &nbsp;·&nbsp; ${state.module.title}`;
+  document.getElementById('progressFill').style.width =
+    `${((state.qIndex - 1) / total) * 100}%`;
+
+  // Reset panels
+  document.getElementById('questionBubble').innerHTML = '<span class="cursor"></span>';
+  document.getElementById('answerInput').value = '';
+  document.getElementById('evalResult').style.display = 'none';
+  document.getElementById('answerSection').style.display = 'block';
+  document.getElementById('submitBtn').disabled = false;
+
+  // Stream question
+  await streamQuestion();
+
+  // Start timer
+  startTimer();
+}
+
+async function streamQuestion() {
+  state.streaming = true;
+  setStreamDot(true);
+
+  const tokenEl  = document.getElementById('tokenStream');
+  tokenEl.innerHTML = '';
+  const bubble   = document.getElementById('questionBubble');
+  bubble.innerHTML = '<span class="cursor"></span>';
+
+  let fullText = '';
+
+  try {
+    const resp = await fetch(`${API}/generate-question/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        module:  state.module,
+        history: state.history.map(h => ({ question: h.question, answer: h.answer })),
+      }),
+    });
+
+    const reader = resp.body.getReader();
+    const dec    = new TextDecoder();
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const lines = dec.decode(value).split('\n');
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = JSON.parse(line.slice(6));
+        if (payload.done) break;
+        if (payload.token) {
+          fullText += payload.token;
+          // Update question bubble
+          bubble.innerHTML = escHtml(fullText) + '<span class="cursor"></span>';
+          // Update token stream sidebar
+          const span = document.createElement('span');
+          span.className = 't';
+          span.textContent = payload.token;
+          tokenEl.appendChild(span);
+          tokenEl.scrollTop = tokenEl.scrollHeight;
+        }
+      }
+    }
+  } catch (e) {
+    bubble.innerHTML = `<span style="color:var(--red)">Error reaching LLM: ${e.message}</span>`;
+  }
+
+  // Finalise — remove cursor
+  bubble.innerHTML = escHtml(fullText);
+  state.currentQ   = fullText;
+  state.streaming  = false;
+  setStreamDot(false);
+}
+
+// ── Timer ──────────────────────────────────────────────────────────────
+function startTimer() {
+  clearInterval(state.timer);
+  state.timeLeft = state.module.time_per_question;
+  updateTimerDisplay();
+  state.timer = setInterval(() => {
+    state.timeLeft--;
+    updateTimerDisplay();
+    if (state.timeLeft <= 0) {
+      clearInterval(state.timer);
+      showToast('Time up! Submitting…', 'warn');
+      submitAnswer(true);
+    }
+  }, 1000);
+}
+
+function updateTimerDisplay() {
+  const el  = document.getElementById('timerBox');
+  const m   = Math.floor(state.timeLeft / 60);
+  const s   = String(state.timeLeft % 60).padStart(2, '0');
+  el.textContent = `${m}:${s}`;
+  const pct = state.timeLeft / state.module.time_per_question;
+  el.className   = 'timer-box' + (pct < .15 ? ' danger' : pct < .33 ? ' warn' : '');
+}
+
+// ── Answer submission ──────────────────────────────────────────────────
+async function submitAnswer(timedOut = false) {
+  clearInterval(state.timer);
+  const answer = timedOut ? '[No answer — timed out]'
+    : document.getElementById('answerInput').value.trim() || '[No answer provided]';
+
+  document.getElementById('submitBtn').disabled = true;
+  document.getElementById('answerSection').innerHTML =
+    `<div class="thinking"><div class="spinner"></div> Evaluating answer…</div>`;
+
+  try {
+    const r = await fetch(`${API}/evaluate-answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        module:           state.module,
+        question:         state.currentQ,
+        answer,
+        question_number:  state.qIndex,
+        total_questions:  state.module.question_count,
+      }),
+    });
+    const data = await r.json();
+
+    const result = data.result || {};
+    const score  = result.score ?? 0;
+
+    // Save to history
+    state.history.push({
+      question:      state.currentQ,
+      answer,
+      score,
+      justification: result.justification || '',
+      strengths:     result.strengths     || '',
+      gaps:          result.gaps          || '',
+    });
+
+    showEvalResult(result, answer);
+    renderHistory();
+
+    // Schedule next Q or complete
+    setTimeout(() => {
+      if (state.qIndex < state.module.question_count) {
+        nextQuestion();
+      } else {
+        completeSession();
+      }
+    }, 3000);
+
+  } catch (e) {
+    document.getElementById('answerSection').innerHTML =
+      `<div style="color:var(--red);padding:12px;font-family:var(--mono);font-size:12px">
+        Evaluation failed: ${e.message}
+      </div>`;
+  }
+}
+
+function skipQuestion() {
+  clearInterval(state.timer);
+  state.history.push({
+    question: state.currentQ,
+    answer:   '[Skipped]',
+    score:    0, justification:'Skipped', strengths:'', gaps:'',
+  });
+  renderHistory();
+  if (state.qIndex < state.module.question_count) {
+    nextQuestion();
+  } else {
+    completeSession();
+  }
+}
+
+// ── Render eval result ─────────────────────────────────────────────────
+function showEvalResult(result, answer) {
+  const score = result.score ?? 0;
+  const cls   = score >= 7 ? 'high' : score >= 4 ? 'mid' : 'low';
+
+  document.getElementById('answerSection').innerHTML = `
+    <div style="padding:12px 0;font-family:var(--mono);font-size:12px;color:var(--txt3)">
+      ✓ Submitted · Next question in 3s…
+    </div>`;
+
+  const evalEl = document.getElementById('evalResult');
+  evalEl.style.display = 'block';
+  evalEl.innerHTML = `
+    <div class="eval-card">
+      <div class="score-row">
+        <div class="score-big ${cls}">${score}<span style="font-size:20px;font-weight:400;color:var(--txt3)">/10</span></div>
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--txt)">${scoreLabel(score)}</div>
+          <div class="score-label">AI evaluation</div>
+        </div>
+      </div>
+      ${result.justification ? `
+      <div class="eval-field">
+        <div class="eval-field-label">Justification</div>
+        <p>${escHtml(result.justification)}</p>
+      </div>` : ''}
+      ${result.strengths ? `
+      <div class="eval-field">
+        <div class="eval-field-label">Strengths</div>
+        <p style="color:var(--green)">${escHtml(result.strengths)}</p>
+      </div>` : ''}
+      ${result.gaps ? `
+      <div class="eval-field">
+        <div class="eval-field-label">Gaps</div>
+        <p style="color:var(--amber)">${escHtml(result.gaps)}</p>
+      </div>` : ''}
+      <div class="divider"></div>
+      <div class="eval-field">
+        <div class="eval-field-label">Your answer</div>
+        <p>${escHtml(answer)}</p>
+      </div>
+    </div>`;
+}
+
+// ── Session complete ───────────────────────────────────────────────────
+function completeSession() {
+  state.active = false;
+  clearInterval(state.timer);
+
+  document.getElementById('progressFill').style.width = '100%';
+  document.getElementById('activeSession').style.display = 'none';
+  document.getElementById('timerBox').textContent = '—';
+  document.getElementById('qCounter').textContent = 'Session complete';
+
+  const avg   = state.history.reduce((a, h) => a + (h.score || 0), 0) / state.history.length;
+  const cls   = avg >= 7 ? 'high' : avg >= 4 ? 'mid' : 'low';
+
+  const el = document.getElementById('completeState');
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="complete-banner">
+      <h3>Session Complete</h3>
+      <span class="final-score ${cls}">${avg.toFixed(1)}<span style="font-size:20px;color:var(--txt2)">/10</span></span>
+      <p>${state.module.title} · ${state.history.length} questions</p>
+    </div>
+    ${state.history.map((h, i) => `
+      <div class="eval-card" style="margin-bottom:10px">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--txt3);margin-bottom:6px">Q${i+1}</div>
+        <div style="font-size:13px;color:var(--txt);margin-bottom:8px">${escHtml(h.question)}</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+          <span class="score-big ${h.score>=7?'high':h.score>=4?'mid':'low'}" style="font-size:22px">${h.score}</span>
+          <span style="font-size:12px;color:var(--txt2)">${escHtml(h.justification)}</span>
+        </div>
+        <div style="font-size:12px;color:var(--txt3)">${escHtml(h.answer)}</div>
+      </div>
+    `).join('')}
+    <button class="btn btn-primary" onclick="startSession()" style="margin-top:8px">↺ New session</button>
+  `;
+}
+
+// ── History panel ──────────────────────────────────────────────────────
+function renderHistory() {
+  const el = document.getElementById('historyPanel');
+  if (!state.history.length && state.qIndex === 0) return;
+
+  // Show current in-progress Q
+  const items = [...state.history];
+  if (state.active && state.qIndex > state.history.length) {
+    items.push({ question: state.currentQ || '…', answer: null, score: null });
+  }
+
+  el.innerHTML = items.map((h, i) => {
+    const scored = h.score !== null && h.score !== undefined;
+    const cls    = scored ? (h.score >= 7 ? 'high' : h.score >= 4 ? 'mid' : 'low') : 'pending';
+    return `
+    <div class="history-item ${!scored ? 'active' : ''}">
+      <div class="hi-header">
+        <span class="hi-num">Q${i+1}</span>
+        <span class="hi-q">${escHtml(h.question || '…')}</span>
+        <span class="hi-score ${cls}">${scored ? h.score+'/10' : '…'}</span>
+      </div>
+      ${scored && h.justification ? `
+        <div style="font-size:11px;color:var(--txt3);padding-left:26px;line-height:1.5">
+          ${escHtml(h.justification)}
+        </div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// ── Utilities ──────────────────────────────────────────────────────────
+function setStreamDot(on) {
+  const d = document.getElementById('streamDot');
+  d.style.background  = on ? 'var(--teal)' : 'var(--txt3)';
+  d.style.boxShadow   = on ? '0 0 6px var(--teal)' : 'none';
+}
+
+function scoreLabel(s) {
+  if (s >= 9) return 'Excellent';
+  if (s >= 7) return 'Good';
+  if (s >= 5) return 'Satisfactory';
+  if (s >= 3) return 'Needs work';
+  return 'Insufficient';
+}
+
+function escHtml(str = '') {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function showToast(msg, type = 'ok') {
+  const t = document.createElement('div');
+  t.style.cssText = `
+    position:fixed;bottom:20px;right:20px;z-index:9999;
+    background:var(--surface2);border:1px solid var(--border2);
+    padding:10px 16px;border-radius:8px;font-size:13px;
+    font-family:var(--mono);color:var(--txt);max-width:360px;
+    animation:fadeIn .2s ease;
+  `;
+  if (type === 'err')  t.style.borderColor = 'var(--red)';
+  if (type === 'warn') t.style.borderColor = 'var(--amber)';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4500);
+}
+
+boot();
+</script>
+</body>
+</html>
