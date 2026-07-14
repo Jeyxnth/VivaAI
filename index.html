@@ -75,7 +75,7 @@
   /* ── Layout ── */
   .layout {
     display: grid;
-    grid-template-columns: 320px 1fr 300px;
+    grid-template-columns: 300px 1fr 460px;
     grid-template-rows: 1fr;
     height: calc(100vh - 53px);
     overflow: hidden;
@@ -411,41 +411,25 @@
     </div>
     <div class="panel-body">
 
+      <!-- Module list (student picks, cannot edit) -->
       <div class="field-group">
-        <span class="field-label">Quick presets</span>
-        <div class="preset-row" id="presetRow">
+        <span class="field-label" style="margin:0">Select a module</span>
+        <div id="moduleList" style="display:flex;flex-direction:column;gap:6px;margin-top:6px;">
           <!-- filled by JS -->
         </div>
       </div>
 
-      <div class="divider"></div>
-
-      <div class="field-group">
-        <label class="field-label" for="modTitle">Module title</label>
-        <input type="text" id="modTitle" value="OS — Process Scheduling">
+      <div class="field-group" id="moduleMeta" style="display:none;">
+        <div class="tag" id="metaQCount"></div>
+        <div class="tag" id="metaTimeQ" style="margin-left:6px;"></div>
       </div>
 
-      <div class="field-group">
-        <label class="field-label" for="sysPrompt">
-          <em>system_prompt</em> — drives question generation &amp; evaluation
-        </label>
-        <textarea id="sysPrompt">You are conducting an oral viva examination on Operating Systems, specifically CPU process scheduling. Ask ONE question at a time. Start with foundational concepts and progressively increase difficulty. Do NOT repeat questions. Do NOT evaluate in this turn — just ask the question. Output ONLY the question text with no preamble, no numbering, no 'Question:' prefix.</textarea>
-      </div>
-
-      <div class="row2 field-group">
-        <div>
-          <label class="field-label" for="qCount">Questions</label>
-          <input type="number" id="qCount" value="5" min="1" max="20">
-        </div>
-        <div>
-          <label class="field-label" for="timePerQ">Seconds / Q</label>
-          <input type="number" id="timePerQ" value="120" min="30" max="600">
-        </div>
-      </div>
-
-      <button class="btn btn-primary" id="startBtn" onclick="startSession()">
+      <button class="btn btn-primary" id="startBtn" onclick="startSession()" disabled>
         ▶ Start session
       </button>
+
+      <div class="divider"></div>
+      <a href="admin.html" class="btn btn-ghost" style="width:100%;justify-content:center;text-decoration:none;">👩‍🏫 Teacher: manage modules</a>
 
       <div class="divider"></div>
 
@@ -481,7 +465,7 @@
     </div>
 
     <!-- Active session -->
-    <div id="activeSession" style="display:none;flex:1;display:none;flex-direction:column;overflow:hidden;">
+    <div id="activeSession" style="display:none;flex:1;flex-direction:column;overflow:hidden;">
       <div class="question-area" id="questionArea">
         <div class="q-label" id="qLabel">QUESTION 1</div>
         <div class="question-bubble" id="questionBubble">
@@ -543,7 +527,7 @@ let state = {
 // ── Boot ───────────────────────────────────────────────────────────────
 async function boot() {
   await checkHealth();
-  await loadPresets();
+  await loadModules();
 }
 
 async function checkHealth() {
@@ -557,11 +541,11 @@ async function checkHealth() {
       op.textContent = 'ollama: connected';
       if (d.model_ready) {
         mp.className = 'pill ok';
-        mp.textContent = `model: llama3 ✓`;
+        mp.textContent = `model: ${d.model} ✓`;
       } else {
         mp.className = 'pill err';
-        mp.textContent = `llama3: not pulled`;
-        showToast('Run: ollama pull llama3', 'warn');
+        mp.textContent = `${d.model}: not pulled`;
+        showToast(`Run: ollama pull ${d.model}`, 'warn');
       }
     } else {
       op.className = 'pill err';
@@ -576,36 +560,51 @@ async function checkHealth() {
   }
 }
 
-async function loadPresets() {
+// ── Module picker (read-only — teacher manages via admin.html) ─────────
+let _modules = [];
+let _selectedIndex = null;
+
+async function loadModules() {
   try {
-    const r = await fetch(`${API}/default-modules`);
-    const presets = await r.json();
-    const row = document.getElementById('presetRow');
-    row.innerHTML = presets.map((p, i) => `
-      <button class="preset-btn" onclick="applyPreset(${i})">${p.title}</button>
-    `).join('');
-    window._presets = presets;
+    const r = await fetch(`${API}/modules`);
+    _modules = await r.json();
+    renderModuleList();
+    if (_modules.length > 0) selectModule(0);
   } catch {}
 }
 
-function applyPreset(i) {
-  const p = window._presets[i];
-  document.getElementById('modTitle').value    = p.title;
-  document.getElementById('sysPrompt').value   = p.system_prompt;
-  document.getElementById('qCount').value      = p.question_count;
-  document.getElementById('timePerQ').value    = p.time_per_question;
+function renderModuleList() {
+  const el = document.getElementById('moduleList');
+  if (!_modules.length) {
+    el.innerHTML = `<div style="color:var(--txt3);font-family:var(--mono);font-size:11px;padding:8px 0;">No modules yet — ask your teacher to create one</div>`;
+    return;
+  }
+  el.innerHTML = _modules.map((m, i) => `
+    <div class="preset-btn"
+         id="modBtn-${i}"
+         onclick="selectModule(${i})"
+         style="${_selectedIndex === i ? 'border-color:var(--teal);color:var(--teal);' : ''}">
+      ${escHtml(m.title)}
+    </div>
+  `).join('');
+}
+
+function selectModule(i) {
+  _selectedIndex = i;
+  const m = _modules[i];
+  document.getElementById('moduleMeta').style.display = 'block';
+  document.getElementById('metaQCount').textContent = `${m.question_count} questions`;
+  document.getElementById('metaTimeQ').textContent  = `${m.time_per_question}s / question`;
+  document.getElementById('startBtn').disabled = false;
+  renderModuleList();
 }
 
 // ── Session control ────────────────────────────────────────────────────
 function startSession() {
+  if (_selectedIndex === null) { showToast('Select a module first', 'warn'); return; }
   if (state.active) resetSession();
 
-  state.module = {
-    title:             document.getElementById('modTitle').value,
-    system_prompt:     document.getElementById('sysPrompt').value,
-    question_count:    parseInt(document.getElementById('qCount').value),
-    time_per_question: parseInt(document.getElementById('timePerQ').value),
-  };
+  state.module  = { ..._modules[_selectedIndex] };
   state.history  = [];
   state.qIndex   = 0;
   state.active   = true;
@@ -654,7 +653,7 @@ async function nextQuestion() {
   startTimer();
 }
 
-async function streamQuestion() {
+async function streamQuestion(retryCount = 0) {
   state.streaming = true;
   setStreamDot(true);
 
@@ -664,8 +663,29 @@ async function streamQuestion() {
   bubble.innerHTML = '<span class="cursor"></span>';
 
   let fullText = '';
+  let gotToken = false;
+
+  const processLine = (line) => {
+    if (!line.startsWith('data: ')) return;
+    let payload;
+    try { payload = JSON.parse(line.slice(6)); } catch { return; }
+    if (payload.token) {
+      gotToken = true;
+      fullText += payload.token;
+      bubble.innerHTML = escHtml(fullText) + '<span class="cursor"></span>';
+      const span = document.createElement('span');
+      span.className = 't';
+      span.textContent = payload.token;
+      tokenEl.appendChild(span);
+      tokenEl.scrollTop = tokenEl.scrollHeight;
+    }
+  };
 
   try {
+    const ctrl    = new AbortController();
+    const stallMs = 20000;
+    let stallTimer = setTimeout(() => ctrl.abort(), stallMs);
+
     const resp = await fetch(`${API}/generate-question/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -673,38 +693,49 @@ async function streamQuestion() {
         module:  state.module,
         history: state.history.map(h => ({ question: h.question, answer: h.answer })),
       }),
+      signal: ctrl.signal,
     });
 
     const reader = resp.body.getReader();
     const dec    = new TextDecoder();
+    let buffer   = '';
 
     while (true) {
       const { value, done } = await reader.read();
-      if (done) break;
-      const lines = dec.decode(value).split('\n');
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const payload = JSON.parse(line.slice(6));
-        if (payload.done) break;
-        if (payload.token) {
-          fullText += payload.token;
-          // Update question bubble
-          bubble.innerHTML = escHtml(fullText) + '<span class="cursor"></span>';
-          // Update token stream sidebar
-          const span = document.createElement('span');
-          span.className = 't';
-          span.textContent = payload.token;
-          tokenEl.appendChild(span);
-          tokenEl.scrollTop = tokenEl.scrollHeight;
-        }
-      }
+      clearTimeout(stallTimer);
+      if (value) buffer += dec.decode(value, { stream: true });
+      if (done)  buffer += dec.decode();
+
+      const lines = buffer.split('\n');
+      buffer = done ? '' : lines.pop(); // on final read, nothing left to buffer — process everything
+      for (const line of lines) processLine(line);
+      if (done) { for (const line of buffer.split('\n')) processLine(line); break; }
+
+      stallTimer = setTimeout(() => ctrl.abort(), stallMs);
     }
+    clearTimeout(stallTimer);
   } catch (e) {
-    bubble.innerHTML = `<span style="color:var(--red)">Error reaching LLM: ${e.message}</span>`;
+    if (!gotToken && retryCount < 2) {
+      return streamQuestion(retryCount + 1);
+    }
+    bubble.innerHTML = gotToken ? escHtml(fullText) :
+      `<span style="color:var(--red)">Couldn't reach the LLM (${e.message}). </span>
+       <button class="btn btn-ghost" style="margin-top:10px" onclick="streamQuestion()">↺ Retry</button>`;
+    state.currentQ  = fullText;
+    state.streaming = false;
+    setStreamDot(false);
+    return;
+  }
+
+  if (!fullText.trim() && retryCount < 2) {
+    return streamQuestion(retryCount + 1);
   }
 
   // Finalise — remove cursor
-  bubble.innerHTML = escHtml(fullText);
+  bubble.innerHTML = fullText.trim()
+    ? escHtml(fullText)
+    : `<span style="color:var(--red)">No question received. </span>
+       <button class="btn btn-ghost" style="margin-top:10px" onclick="streamQuestion()">↺ Retry</button>`;
   state.currentQ   = fullText;
   state.streaming  = false;
   setStreamDot(false);
@@ -767,6 +798,11 @@ async function submitAnswer(timedOut = false) {
       question:      state.currentQ,
       answer,
       score,
+      accuracy:      result.accuracy,
+      completeness:  result.completeness,
+      terminology:   result.terminology,
+      clarity:       result.clarity,
+      confidence:    result.confidence,
       justification: result.justification || '',
       strengths:     result.strengths     || '',
       gaps:          result.gaps          || '',
@@ -828,6 +864,9 @@ function showEvalResult(result, answer) {
           <div class="score-label">AI evaluation</div>
         </div>
       </div>
+      <div style="margin-bottom:10px;">
+        ${rubricRow('Accuracy', result.accuracy, 4)}${rubricRow('Completeness', result.completeness, 3)}${rubricRow('Terminology', result.terminology, 2)}${rubricRow('Clarity', result.clarity, 1)}
+      </div>
       ${result.justification ? `
       <div class="eval-field">
         <div class="eval-field-label">Justification</div>
@@ -880,6 +919,11 @@ function completeSession() {
           <span class="score-big ${h.score>=7?'high':h.score>=4?'mid':'low'}" style="font-size:22px">${h.score}</span>
           <span style="font-size:12px;color:var(--txt2)">${escHtml(h.justification)}</span>
         </div>
+        <div style="margin-bottom:8px;">
+          ${rubricRow('Accuracy', h.accuracy, 4)}${rubricRow('Completeness', h.completeness, 3)}${rubricRow('Terminology', h.terminology, 2)}${rubricRow('Clarity', h.clarity, 1)}
+        </div>
+        ${h.strengths ? `<div class="eval-field-label">Strengths</div><div style="font-size:12px;color:var(--green);margin-bottom:6px;">${escHtml(h.strengths)}</div>` : ''}
+        ${h.gaps ? `<div class="eval-field-label">Gaps</div><div style="font-size:12px;color:var(--amber);margin-bottom:6px;">${escHtml(h.gaps)}</div>` : ''}
         <div style="font-size:12px;color:var(--txt3)">${escHtml(h.answer)}</div>
       </div>
     `).join('')}
@@ -888,6 +932,11 @@ function completeSession() {
 }
 
 // ── History panel ──────────────────────────────────────────────────────
+function rubricRow(label, val, max) {
+  if (val === undefined || val === null) return '';
+  return `<span class="tag" style="margin:2px 4px 0 0">${label} ${val}/${max}</span>`;
+}
+
 function renderHistory() {
   const el = document.getElementById('historyPanel');
   if (!state.history.length && state.qIndex === 0) return;
@@ -908,9 +957,22 @@ function renderHistory() {
         <span class="hi-q">${escHtml(h.question || '…')}</span>
         <span class="hi-score ${cls}">${scored ? h.score+'/10' : '…'}</span>
       </div>
-      ${scored && h.justification ? `
-        <div style="font-size:11px;color:var(--txt3);padding-left:26px;line-height:1.5">
-          ${escHtml(h.justification)}
+      ${scored ? `
+        <div style="padding-left:26px;">
+          <div style="margin-bottom:6px;">
+            ${rubricRow('Accuracy', h.accuracy, 4)}
+            ${rubricRow('Completeness', h.completeness, 3)}
+            ${rubricRow('Terminology', h.terminology, 2)}
+            ${rubricRow('Clarity', h.clarity, 1)}
+          </div>
+          ${h.justification ? `<div class="eval-field-label" style="margin-top:6px;">Justification</div>
+            <div style="font-size:11px;color:var(--txt2);line-height:1.5;margin-bottom:6px;">${escHtml(h.justification)}</div>` : ''}
+          ${h.strengths ? `<div class="eval-field-label">Strengths</div>
+            <div style="font-size:11px;color:var(--green);line-height:1.5;margin-bottom:6px;">${escHtml(h.strengths)}</div>` : ''}
+          ${h.gaps ? `<div class="eval-field-label">Gaps</div>
+            <div style="font-size:11px;color:var(--amber);line-height:1.5;margin-bottom:6px;">${escHtml(h.gaps)}</div>` : ''}
+          ${h.answer ? `<div class="eval-field-label">Your answer</div>
+            <div style="font-size:11px;color:var(--txt3);line-height:1.5;">${escHtml(h.answer)}</div>` : ''}
         </div>` : ''}
     </div>`;
   }).join('');
