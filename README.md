@@ -73,7 +73,7 @@ System prompt + history
 
 ## Swapping text for audio
 
-When you're ready to wire in Whisper STT, replace the `<textarea>` answer input in `index.html` with an audio recorder, then POST the `.webm` file to a `/transcribe` endpoint (see `server.py` comments). The `submitAnswer()` function accepts any string — just replace the source.
+Currently this module works with text input. It will be changed to include WhisperSTT to make it work with voice input
 
 ## File structure
 
