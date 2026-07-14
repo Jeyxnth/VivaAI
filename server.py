@@ -11,6 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import httpx, json, re
 from typing import Optional
+import os
+
 
 app = FastAPI(title="VivaAI LLM Module")
 
@@ -18,8 +20,53 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 OLLAMA_URL = "http://localhost:11434"
 MODEL      = "qwen2.5:14b"
+MODULES_FILE = "modules.json"
+
+# ── Module storage helpers ─────────────────────────────────────────────────
+
+def _load_modules() -> list:
+    try:
+        with open(MODULES_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def _save_modules(mods: list) -> None:
+    with open(MODULES_FILE, "w", encoding="utf-8") as f:
+        json.dump(mods, f, indent=2, ensure_ascii=False)
+
+def generate_system_prompt(title: str) -> str:
+    """Auto-generate a viva system prompt from just a module title (teacher only types the name)."""
+    return f"""You are an experienced university viva examiner.
+
+Generate EXACTLY ONE oral viva question on the topic: {title}.
+
+Rules:
+- Ask only one question.
+- Ask only one concept.
+- Do not ask multi-part questions.
+- Do not provide hints, examples, or explanations.
+- Do not number questions or use prefixes like 'Question:'.
+- Keep the question under 30 words.
+- Prefer conceptual understanding over memorization.
+- Avoid repeating previously asked concepts.
+- Keep difficulty at a consistent, introductory-to-intermediate level throughout the session. Do not escalate to advanced or highly technical questions.
+- Stay strictly within the module topic.
+
+Output ONLY the question text."""
 
 # ── Pydantic models ───────────────────────────────────────────────────────
+
+class NewModuleRequest(BaseModel):
+    title: str
+    question_count: int = 5
+    time_per_question: int = 120
+
+class UpdateModuleRequest(BaseModel):
+    title: Optional[str] = None
+    system_prompt: Optional[str] = None
+    question_count: Optional[int] = None
+    time_per_question: Optional[int] = None
 
 class ModuleConfig(BaseModel):
     title: str
@@ -87,8 +134,15 @@ Rules:
 - Evaluate meaning rather than exact wording.
 - Minor grammatical mistakes should not reduce marks.
 - Reward conceptual understanding more than memorized definitions.
-- Penalize factual inaccuracies heavily.
-- Penalize misconceptions heavily.
+- Penalize factual inaccuracies moderately; penalize only clear, central misconceptions heavily.
+- This is an educational viva examination, not a certification exam.
+- Be fair and generously lenient — this is a learning exercise, not a pass/fail gate.
+- If the student demonstrates correct understanding of the core concept, award most of the marks even if some details, precision, or terminology are missing.
+- When genuinely uncertain between two adjacent scores, choose the higher one.
+- Reserve low scores (below 4) only for answers that are fundamentally incorrect, blank, or show major misconceptions.
+- A vague or partially correct answer that shows some right idea should typically receive between 6 and 8 marks.
+- A correct answer missing minor details should typically receive between 8 and 9 marks.
+- A correct and reasonably complete answer should receive 10 marks — comprehensiveness beyond the core concept is not required.
 
 Follow these steps internally:
 1. Determine the expected concepts.
@@ -129,6 +183,61 @@ async def root():
     return FileResponse("index.html")
 
 
+@app.get("/admin.html")
+async def admin_page():
+    return FileResponse("admin.html")
+
+
+@app.get("/modules")
+async def get_modules():
+    return _load_modules()
+
+
+@app.post("/modules")
+async def create_module(req: NewModuleRequest):
+    """Teacher-only: create a module by name — system prompt is auto-generated."""
+    mods = _load_modules()
+    mods.append({
+        "title": req.title,
+        "system_prompt": generate_system_prompt(req.title),
+        "question_count": req.question_count,
+        "time_per_question": req.time_per_question,
+    })
+    _save_modules(mods)
+    return {"index": len(mods) - 1, "module": mods[-1]}
+
+
+@app.put("/modules/{index}")
+async def update_module(index: int, req: UpdateModuleRequest):
+    mods = _load_modules()
+    if index < 0 or index >= len(mods):
+        raise HTTPException(404, "Module not found")
+    m = mods[index]
+    if req.title is not None:
+        m["title"] = req.title
+        if req.system_prompt is None:
+            m["system_prompt"] = generate_system_prompt(req.title)
+    if req.system_prompt is not None:
+        m["system_prompt"] = req.system_prompt
+    if req.question_count is not None:
+        m["question_count"] = req.question_count
+    if req.time_per_question is not None:
+        m["time_per_question"] = req.time_per_question
+    mods[index] = m
+    _save_modules(mods)
+    return m
+
+
+@app.delete("/modules/{index}")
+async def delete_module(index: int):
+    mods = _load_modules()
+    if index < 0 or index >= len(mods):
+        raise HTTPException(404, "Module not found")
+    removed = mods.pop(index)
+    _save_modules(mods)
+    return {"ok": True, "removed": removed}
+
+
 @app.get("/health")
 async def health():
     """Check Ollama connectivity and model availability."""
@@ -165,7 +274,7 @@ async def generate_question_stream(req: GenerateQuestionRequest):
         "temperature": 0.7,
         "top_p": 0.9,
         "repeat_penalty": 1.15,
-        "num_predict": 100
+        "num_predict": 35
     }
 },
             ) as resp:
@@ -203,7 +312,7 @@ async def evaluate_answer(req: EvaluateRequest):
     "messages": messages,
     "stream": True,
     "options": {
-        "temperature": 0.1,
+        "temperature": 0.2,
         "top_p": 0.8,
         "repeat_penalty": 1.0,
         "num_predict": 300
@@ -265,7 +374,7 @@ Rules:
 - The question should be answerable verbally in under two minutes.
 - Prefer conceptual understanding over memorization.
 - Avoid repeating previously asked concepts.
-- Increase difficulty gradually throughout the session.
+- Keep difficulty at a consistent, introductory-to-intermediate level. Do not escalate to advanced topics.
 - Stay strictly within the module topic.
 
 Output ONLY the question text."""
@@ -277,7 +386,7 @@ Output ONLY the question text."""
             "title": "Networks — TCP/IP",
             "system_prompt": (
                 "You are an examiner for a computer networks viva on TCP/IP fundamentals. "
-                "Ask ONE focused question at a time, starting from basics (IP addressing, subnetting) and moving to advanced topics (TCP handshake, congestion control). "
+                "Ask ONE focused question at a time, kept at a consistent introductory-to-intermediate level (IP addressing, subnetting, basic TCP handshake). Do not escalate to advanced topics. "
                 "Output ONLY the question text — no numbering, no prefix."
             ),
             "question_count": 5,
@@ -287,7 +396,7 @@ Output ONLY the question text."""
             "title": "Databases — Normalisation",
             "system_prompt": (
                 "You are an examiner testing a student's understanding of database normalisation (1NF through BCNF) and related concepts. "
-                "Ask ONE question at a time, escalating from definitions to application of normal forms. "
+                "Ask ONE question at a time, kept at a consistent introductory-to-intermediate level (definitions and basic application of normal forms). Do not escalate to advanced topics. "
                 "Output ONLY the question text."
             ),
             "question_count": 5,
