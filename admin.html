@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VivaAI — Teacher Admin</title>
+<style>
+  :root {
+    --bg:#0C0E14; --surface:#13161F; --surface2:#1A1E2A;
+    --border:#252836; --border2:#303446;
+    --txt:#E2E6F0; --txt2:#7B82A0; --txt3:#454B64;
+    --teal:#00C9A7; --teal-dim:#00C9A720;
+    --red:#EF4444; --red-dim:#EF444420;
+    --amber:#F59E0B;
+    --mono:'JetBrains Mono','Fira Code','Cascadia Code',monospace;
+    --sans:'Inter',system-ui,sans-serif;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:14px;min-height:100vh;}
+  header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;gap:16px;}
+  .logo{font-family:var(--mono);font-size:16px;font-weight:700;color:var(--teal);}
+  .logo span{color:var(--txt2);}
+  .badge{margin-left:auto;font-family:var(--mono);font-size:11px;padding:3px 10px;border-radius:99px;border:1px solid var(--amber);color:var(--amber);background:var(--amber-dim);}
+  a.back{color:var(--txt2);font-size:12px;text-decoration:none;font-family:var(--mono);}
+  a.back:hover{color:var(--teal);}
+  main{max-width:760px;margin:0 auto;padding:32px 20px 80px;}
+  h1{font-size:20px;margin-bottom:4px;}
+  .sub{color:var(--txt2);font-size:13px;margin-bottom:28px;}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px;margin-bottom:20px;}
+  .field-label{font-family:var(--mono);font-size:11px;color:var(--txt2);margin-bottom:6px;display:block;}
+  input[type=text],input[type=number]{
+    width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;
+    color:var(--txt);font-family:var(--sans);font-size:14px;padding:10px 12px;outline:none;
+  }
+  input:focus{border-color:var(--teal);}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px;}
+  .field-group{margin-bottom:14px;}
+  .hint{font-size:12px;color:var(--txt3);margin-top:6px;line-height:1.5;}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.15s;}
+  .btn-primary{background:var(--teal);color:#000;}
+  .btn-primary:hover{opacity:.88;}
+  .btn-primary:disabled{opacity:.4;cursor:not-allowed;}
+  .btn-ghost{background:transparent;color:var(--txt2);border:1px solid var(--border2);}
+  .btn-ghost:hover{border-color:var(--red);color:var(--red);}
+  .mod-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--surface2);}
+  .mod-item .title{flex:1;font-size:13px;}
+  .mod-item .tag{font-family:var(--mono);font-size:10px;color:var(--txt3);border:1px solid var(--border2);padding:2px 8px;border-radius:4px;margin-right:6px;}
+  .toast{position:fixed;bottom:20px;right:20px;background:var(--surface2);border:1px solid var(--border2);padding:10px 16px;border-radius:8px;font-size:13px;font-family:var(--mono);z-index:999;}
+  details summary{cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--txt2);margin-top:10px;}
+  pre.prompt-preview{white-space:pre-wrap;font-family:var(--mono);font-size:11px;color:var(--txt2);background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:10px;margin-top:8px;max-height:200px;overflow-y:auto;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">VivaAI <span>/</span> teacher admin</div>
+  <span class="badge">TEACHER ONLY</span>
+  <a class="back" href="/">← back to student view</a>
+</header>
+
+<main>
+  <h1>Create a module</h1>
+  <p class="sub">Just type the topic name — the examiner prompt is generated automatically. Students will only see the module title.</p>
+
+  <div class="card">
+    <div class="field-group">
+      <label class="field-label" for="modTitle">Module name</label>
+      <input type="text" id="modTitle" placeholder="e.g. Operating Systems — Deadlocks">
+    </div>
+    <div class="row2">
+      <div class="field-group">
+        <label class="field-label" for="qCount">Number of questions</label>
+        <input type="number" id="qCount" value="5" min="1" max="20">
+      </div>
+      <div class="field-group">
+        <label class="field-label" for="timePerQ">Time per question (seconds)</label>
+        <input type="number" id="timePerQ" value="120" min="30" max="600">
+      </div>
+    </div>
+    <button class="btn btn-primary" id="createBtn" onclick="createModule()">+ Create module</button>
+    <div class="hint">The prompt keeps difficulty consistent (no escalation) and grading lenient, matching the rest of the platform.</div>
+  </div>
+
+  <h1 style="margin-top:34px;">Existing modules</h1>
+  <div class="card" id="modList">Loading…</div>
+</main>
+
+<script>
+const API = 'http://localhost:8000';
+let modules = [];
+
+async function loadModules() {
+  try {
+    const r = await fetch(`${API}/modules`);
+    modules = await r.json();
+    render();
+  } catch (e) {
+    document.getElementById('modList').innerHTML =
+      `<div style="color:var(--red);font-family:var(--mono);font-size:12px">Cannot reach backend. Is server.py running?</div>`;
+  }
+}
+
+function render() {
+  const el = document.getElementById('modList');
+  if (!modules.length) {
+    el.innerHTML = `<div style="color:var(--txt3);font-family:var(--mono);font-size:12px">No modules yet.</div>`;
+    return;
+  }
+  el.innerHTML = modules.map((m, i) => `
+    <div class="mod-item">
+      <div class="title">
+        ${escHtml(m.title)}<br>
+        <span class="tag">${m.question_count} Q</span><span class="tag">${m.time_per_question}s/Q</span>
+      </div>
+      <button class="btn btn-ghost" onclick="removeModule(${i})">🗑 Delete</button>
+    </div>
+    <details>
+      <summary>View auto-generated prompt</summary>
+      <pre class="prompt-preview">${escHtml(m.system_prompt)}</pre>
+    </details>
+  `).join('');
+}
+
+async function createModule() {
+  const title = document.getElementById('modTitle').value.trim();
+  const question_count = parseInt(document.getElementById('qCount').value) || 5;
+  const time_per_question = parseInt(document.getElementById('timePerQ').value) || 120;
+  if (!title) { toast('Enter a module name'); return; }
+
+  document.getElementById('createBtn').disabled = true;
+  try {
+    const r = await fetch(`${API}/modules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, question_count, time_per_question }),
+    });
+    if (!r.ok) throw new Error('Server error');
+    document.getElementById('modTitle').value = '';
+    await loadModules();
+    toast('Module created');
+  } catch (e) {
+    toast('Failed: ' + e.message);
+  }
+  document.getElementById('createBtn').disabled = false;
+}
+
+async function removeModule(i) {
+  if (!confirm(`Delete "${modules[i].title}"?`)) return;
+  try {
+    await fetch(`${API}/modules/${i}`, { method: 'DELETE' });
+    await loadModules();
+    toast('Module deleted');
+  } catch (e) {
+    toast('Delete failed: ' + e.message);
+  }
+}
+
+function escHtml(str = '') {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3500);
+}
+
+loadModules();
+</script>
+</body>
+</html>
