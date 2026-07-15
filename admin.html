@@ -48,6 +48,14 @@
   .toast{position:fixed;bottom:20px;right:20px;background:var(--surface2);border:1px solid var(--border2);padding:10px 16px;border-radius:8px;font-size:13px;font-family:var(--mono);z-index:999;}
   details summary{cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--txt2);margin-top:10px;}
   pre.prompt-preview{white-space:pre-wrap;font-family:var(--mono);font-size:11px;color:var(--txt2);background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:10px;margin-top:8px;max-height:200px;overflow-y:auto;}
+  .token-stream{font-family:var(--mono);font-size:11px;color:var(--txt3);line-height:1.7;word-break:break-word;white-space:pre-wrap;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:12px;min-height:60px;max-height:180px;overflow-y:auto;}
+  .token-stream .t{color:var(--teal);}
+  .tag{display:inline-block;font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid var(--border2);color:var(--txt3);margin:2px 3px 0 0;}
+  .score-big{font-family:var(--mono);font-size:32px;font-weight:700;line-height:1;}
+  .score-big.high{color:#34D399;}.score-big.mid{color:#F59E0B;}.score-big.low{color:#EF4444;}
+  .eval-field-label{font-family:var(--mono);font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;margin-top:10px;display:block;}
+  .spinner{width:14px;height:14px;border:2px solid var(--border2);border-top-color:var(--teal);border-radius:50%;animation:spin .6s linear infinite;display:inline-block;}
+  @keyframes spin{to{transform:rotate(360deg);}}
 </style>
 </head>
 <body>
@@ -83,6 +91,22 @@
 
   <h1 style="margin-top:34px;">Existing modules</h1>
   <div class="card" id="modList">Loading…</div>
+
+  <h1 style="margin-top:34px;">LLM token stream</h1>
+  <p class="sub">Live output from the model during question generation.</p>
+  <div class="card">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <div id="streamDot" style="width:8px;height:8px;border-radius:50%;background:var(--txt3);"></div>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--txt2);">token stream</span>
+    </div>
+    <div class="token-stream" id="tokenStream">Waiting — tokens appear here when the student interface is active.</div>
+  </div>
+
+  <h1 style="margin-top:34px;">Session results</h1>
+  <p class="sub">Full grading detail for the most recent session. Refresh after a session completes.</p>
+  <div class="card" id="sessionResults">
+    <div style="color:var(--txt3);font-family:var(--mono);font-size:12px;">No session data yet. Results appear here after a student completes a session.</div>
+  </div>
 </main>
 
 <script>
@@ -168,6 +192,66 @@ function toast(msg) {
 }
 
 loadModules();
+startTokenStreamListener();
+setInterval(loadSessionResults, 5000);
+
+function startTokenStreamListener() {
+  if (!window.EventSource) return;
+  const es = new EventSource(`${API}/token-stream`);
+  es.onmessage = (e) => {
+    try {
+      const d = JSON.parse(e.data);
+      const el = document.getElementById('tokenStream');
+      if (d.reset) { el.innerHTML = ''; return; }
+      if (d.done)  { document.getElementById('streamDot').style.cssText = 'width:8px;height:8px;border-radius:50%;background:var(--txt3);'; return; }
+      if (d.token) {
+        document.getElementById('streamDot').style.cssText = 'width:8px;height:8px;border-radius:50%;background:#00C9A7;box-shadow:0 0 6px #00C9A7;';
+        const span = document.createElement('span');
+        span.className = 't';
+        span.textContent = d.token;
+        el.appendChild(span);
+        el.scrollTop = el.scrollHeight;
+      }
+    } catch {}
+  };
+  es.onerror = () => {};
+}
+
+async function loadSessionResults() {
+  try {
+    const r = await fetch(`${API}/session-results`);
+    if (!r.ok) return;
+    const sessions = await r.json();
+    if (!sessions.length) return;
+    const el = document.getElementById('sessionResults');
+    el.innerHTML = sessions.map(s => `
+      <div style="border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px;background:var(--surface2);">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <strong style="font-size:14px;">${escHtml(s.module_title)}</strong>
+          <span class="tag">${s.questions.length} Q</span>
+          <span class="score-big ${s.avg>=7?'high':s.avg>=4?'mid':'low'}" style="font-size:20px;margin-left:auto;">${s.avg.toFixed(1)}<span style="font-size:12px;font-weight:400;color:var(--txt3)">/10</span></span>
+        </div>
+        ${s.questions.map((q,i) => `
+          <div style="padding:10px 0;border-top:1px solid var(--border);">
+            <div style="font-family:monospace;font-size:10px;color:var(--txt3);margin-bottom:4px;">Q${i+1}</div>
+            <div style="font-size:13px;margin-bottom:6px;">${escHtml(q.question)}</div>
+            <div style="font-size:12px;color:var(--txt2);margin-bottom:6px;font-style:italic;">"${escHtml(q.answer)}"</div>
+            <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:6px;">
+              <span class="score-big ${q.score>=7?'high':q.score>=4?'mid':'low'}" style="font-size:20px;">${q.score}<span style="font-size:11px;font-weight:400;color:var(--txt3)">/10</span></span>
+              <span class="tag">Accuracy ${q.accuracy??'—'}/4</span>
+              <span class="tag">Completeness ${q.completeness??'—'}/3</span>
+              <span class="tag">Terminology ${q.terminology??'—'}/2</span>
+              <span class="tag">Clarity ${q.clarity??'—'}/1</span>
+            </div>
+            ${q.justification?`<div style="font-size:11px;color:var(--txt2);margin-bottom:3px;">${escHtml(q.justification)}</div>`:''}
+            ${q.strengths?`<div style="font-size:11px;color:#34D399;margin-bottom:3px;">✓ ${escHtml(q.strengths)}</div>`:''}
+            ${q.gaps?`<div style="font-size:11px;color:#F59E0B;">✗ ${escHtml(q.gaps)}</div>`:''}
+          </div>
+        `).join('')}
+      </div>
+    `).join('');
+  } catch {}
+}
 </script>
 </body>
 </html>
