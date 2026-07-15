@@ -431,18 +431,9 @@
       <div class="divider"></div>
       <a href="admin.html" class="btn btn-ghost" style="width:100%;justify-content:center;text-decoration:none;">👩‍🏫 Teacher: manage modules</a>
 
-      <div class="divider"></div>
-
-      <!-- Token stream debug -->
-      <div class="panel-header" style="margin: 0 -16px; padding: 10px 16px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);">
-        <div class="dot live" id="streamDot" style="background:var(--txt3);box-shadow:none"></div>
-        token stream
-      </div>
-      <div style="padding: 12px 0;">
-        <div class="token-stream" id="tokenStream">
-          Waiting for LLM output…
-        </div>
-      </div>
+      <!-- hidden token stream sink (still needed by streamQuestion logic) -->
+      <div id="tokenStream" style="display:none"></div>
+      <div id="streamDot" style="display:none"></div>
 
     </div>
   </div>
@@ -866,31 +857,8 @@ function showEvalResult(result, answer) {
         <div class="score-big ${cls}">${score}<span style="font-size:20px;font-weight:400;color:var(--txt3)">/10</span></div>
         <div>
           <div style="font-size:13px;font-weight:600;color:var(--txt)">${scoreLabel(score)}</div>
-          <div class="score-label">AI evaluation</div>
+          <div class="score-label">Next question in 3s…</div>
         </div>
-      </div>
-      <div style="margin-bottom:10px;">
-        ${rubricRow('Accuracy', result.accuracy, 4)}${rubricRow('Completeness', result.completeness, 3)}${rubricRow('Terminology', result.terminology, 2)}${rubricRow('Clarity', result.clarity, 1)}
-      </div>
-      ${result.justification ? `
-      <div class="eval-field">
-        <div class="eval-field-label">Justification</div>
-        <p>${escHtml(result.justification)}</p>
-      </div>` : ''}
-      ${result.strengths ? `
-      <div class="eval-field">
-        <div class="eval-field-label">Strengths</div>
-        <p style="color:var(--green)">${escHtml(result.strengths)}</p>
-      </div>` : ''}
-      ${result.gaps ? `
-      <div class="eval-field">
-        <div class="eval-field-label">Gaps</div>
-        <p style="color:var(--amber)">${escHtml(result.gaps)}</p>
-      </div>` : ''}
-      <div class="divider"></div>
-      <div class="eval-field">
-        <div class="eval-field-label">Your answer</div>
-        <p>${escHtml(answer)}</p>
       </div>
     </div>`;
 }
@@ -919,17 +887,8 @@ function completeSession() {
     ${state.history.map((h, i) => `
       <div class="eval-card" style="margin-bottom:10px">
         <div style="font-family:var(--mono);font-size:10px;color:var(--txt3);margin-bottom:6px">Q${i+1}</div>
-        <div style="font-size:13px;color:var(--txt);margin-bottom:8px">${escHtml(h.question)}</div>
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
-          <span class="score-big ${h.score>=7?'high':h.score>=4?'mid':'low'}" style="font-size:22px">${h.score}</span>
-          <span style="font-size:12px;color:var(--txt2)">${escHtml(h.justification)}</span>
-        </div>
-        <div style="margin-bottom:8px;">
-          ${rubricRow('Accuracy', h.accuracy, 4)}${rubricRow('Completeness', h.completeness, 3)}${rubricRow('Terminology', h.terminology, 2)}${rubricRow('Clarity', h.clarity, 1)}
-        </div>
-        ${h.strengths ? `<div class="eval-field-label">Strengths</div><div style="font-size:12px;color:var(--green);margin-bottom:6px;">${escHtml(h.strengths)}</div>` : ''}
-        ${h.gaps ? `<div class="eval-field-label">Gaps</div><div style="font-size:12px;color:var(--amber);margin-bottom:6px;">${escHtml(h.gaps)}</div>` : ''}
-        <div style="font-size:12px;color:var(--txt3)">${escHtml(h.answer)}</div>
+        <div style="font-size:13px;color:var(--txt);margin-bottom:10px">${escHtml(h.question)}</div>
+        <span class="score-big ${h.score>=7?'high':h.score>=4?'mid':'low'}" style="font-size:22px">${h.score}<span style="font-size:13px;font-weight:400;color:var(--txt3)">/10</span></span>
       </div>
     `).join('')}
     <button class="btn btn-primary" onclick="startSession()" style="margin-top:8px">↺ New session</button>
@@ -962,23 +921,7 @@ function renderHistory() {
         <span class="hi-q">${escHtml(h.question || '…')}</span>
         <span class="hi-score ${cls}">${scored ? h.score+'/10' : '…'}</span>
       </div>
-      ${scored ? `
-        <div style="padding-left:26px;">
-          <div style="margin-bottom:6px;">
-            ${rubricRow('Accuracy', h.accuracy, 4)}
-            ${rubricRow('Completeness', h.completeness, 3)}
-            ${rubricRow('Terminology', h.terminology, 2)}
-            ${rubricRow('Clarity', h.clarity, 1)}
-          </div>
-          ${h.justification ? `<div class="eval-field-label" style="margin-top:6px;">Justification</div>
-            <div style="font-size:11px;color:var(--txt2);line-height:1.5;margin-bottom:6px;">${escHtml(h.justification)}</div>` : ''}
-          ${h.strengths ? `<div class="eval-field-label">Strengths</div>
-            <div style="font-size:11px;color:var(--green);line-height:1.5;margin-bottom:6px;">${escHtml(h.strengths)}</div>` : ''}
-          ${h.gaps ? `<div class="eval-field-label">Gaps</div>
-            <div style="font-size:11px;color:var(--amber);line-height:1.5;margin-bottom:6px;">${escHtml(h.gaps)}</div>` : ''}
-          ${h.answer ? `<div class="eval-field-label">Your answer</div>
-            <div style="font-size:11px;color:var(--txt3);line-height:1.5;">${escHtml(h.answer)}</div>` : ''}
-        </div>` : ''}
+      
     </div>`;
   }).join('');
 }
