@@ -16,6 +16,18 @@ import os
 
 app = FastAPI(title="VivaAI LLM Module")
 
+# ── Shared state for admin broadcast ──────────────────────────────────────
+import asyncio
+_token_subscribers: list[asyncio.Queue] = []
+_session_results: list[dict] = []   # last N completed sessions (in-memory)
+
+async def _broadcast(event: dict):
+    dead = []
+    for q in _token_subscribers:
+        try: q.put_nowait(event)
+        except asyncio.QueueFull: dead.append(q)
+    for q in dead: _token_subscribers.remove(q)
+
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 OLLAMA_URL = "http://localhost:11434"
@@ -93,7 +105,10 @@ def build_generation_messages(module: ModuleConfig, history: list[dict]) -> list
 
     for item in history:
         messages.append({"role": "assistant", "content": item["question"]})
-        messages.append({"role": "user",      "content": item["answer"]})
+        answer = item["answer"]
+        if answer == "[Skipped]":
+            answer = "[Student skipped this question. Do NOT ask about this concept again. Ask about a completely different concept.]"
+        messages.append({"role": "user", "content": answer})
 
     # Explicit instruction for the next question
     q_num = len(history) + 1
@@ -175,6 +190,34 @@ Return ONLY valid JSON:
         {"role": "system", "content": system},
         {"role": "user",   "content": user},
     ]
+
+# ── Result store helper ────────────────────────────────────────────────────
+def _store_result(req: "EvaluateRequest", result: dict):
+    """Accumulate per-question results into a session entry for the admin view."""
+    global _session_results
+    entry = None
+    if _session_results and _session_results[-1].get("module_title") == req.module.title \
+            and len(_session_results[-1]["questions"]) < req.total_questions:
+        entry = _session_results[-1]
+    else:
+        entry = {"module_title": req.module.title, "questions": [], "avg": 0}
+        _session_results.append(entry)
+
+    entry["questions"].append({
+        "question":     req.question,
+        "answer":       req.answer,
+        "score":        result.get("score", 0),
+        "accuracy":     result.get("accuracy"),
+        "completeness": result.get("completeness"),
+        "terminology":  result.get("terminology"),
+        "clarity":      result.get("clarity"),
+        "justification":result.get("justification",""),
+        "strengths":    result.get("strengths",""),
+        "gaps":         result.get("gaps",""),
+    })
+    scores = [q["score"] for q in entry["questions"]]
+    entry["avg"] = sum(scores) / len(scores)
+
 
 # ── Routes ────────────────────────────────────────────────────────────────
 
@@ -285,10 +328,11 @@ async def generate_question_stream(req: GenerateQuestionRequest):
                         chunk = json.loads(line)
                         token = chunk.get("message", {}).get("content", "")
                         if token:
-                            # Send as SSE
                             yield f"data: {json.dumps({'token': token})}\n\n"
+                            await _broadcast({"token": token})
                         if chunk.get("done"):
                             yield f"data: {json.dumps({'done': True})}\n\n"
+                            await _broadcast({"done": True})
                     except json.JSONDecodeError:
                         continue
 
@@ -333,6 +377,8 @@ async def evaluate_answer(req: EvaluateRequest):
         # Strip markdown code fences if present
         cleaned = re.sub(r"```(?:json)?|```", "", full_response).strip()
         result = json.loads(cleaned)
+        # Store for admin view — accumulate per session via question_number
+        _store_result(req, result)
         return {"success": True, "result": result, "raw": full_response}
     except json.JSONDecodeError:
         # Fallback: try to extract JSON object with regex
@@ -348,6 +394,29 @@ async def evaluate_answer(req: EvaluateRequest):
             "error": "Could not parse LLM evaluation response",
             "raw": full_response,
         }
+
+
+@app.get("/token-stream")
+async def token_stream():
+    """SSE endpoint — admin page subscribes to get live token feed."""
+    q: asyncio.Queue = asyncio.Queue(maxsize=512)
+    _token_subscribers.append(q)
+    async def gen():
+        try:
+            while True:
+                event = await q.get()
+                yield f"data: {json.dumps(event)}\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            if q in _token_subscribers:
+                _token_subscribers.remove(q)
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.get("/session-results")
+async def session_results():
+    return _session_results[-20:]  # last 20 sessions
 
 
 @app.get("/default-modules")
